@@ -37,7 +37,10 @@ class GitlabGollum
         Precious::App.set(:gollum_path, gollum_path)
         Precious::App.set(:base_path, base_path)
         status, headers, response = Precious::App.call(env)
-        if headers.fetch('Content-Type', '').start_with?('text/html')
+        if (
+            headers.fetch('Content-Type', '').start_with?('text/html') or
+            request.path.include?('/livepreview/index.html')
+        )
             # re-write response
             options = Hash[env
                 .select {|k,v| k.start_with? 'HTTP_'}
@@ -45,7 +48,9 @@ class GitlabGollum
             ]
             options[:ssl_verify_mode] = OpenSSL::SSL::VERIFY_NONE
             doc = Nokogiri::HTML(open(env['rack.url_scheme'] + '://' + request.host + project_path, options))
-            wiki_doc = Nokogiri::HTML(response[0])
+            response_str = ''
+            response.each{|e| response_str += e + '\n'}
+            wiki_doc = Nokogiri::HTML(response_str)
             doc.css('head')[0].inner_html += wiki_doc.css('head')[0].inner_html
             doc.css('.content')[0].inner_html = wiki_doc.css('body')[0].inner_html
             response_str = doc.to_s
