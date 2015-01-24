@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+require 'open-uri'
+require 'nokogiri'
 require 'gollum/app'
 
 
@@ -34,7 +36,23 @@ class GitlabGollum
         env['PATH_INFO'] = env['PATH_INFO'][base_path.length..-1]
         Precious::App.set(:gollum_path, gollum_path)
         Precious::App.set(:base_path, base_path)
-        Precious::App.call(env)
+        status, headers, response = Precious::App.call(env)
+        if headers.fetch('Content-Type', '').start_with?('text/html')
+            # re-write response
+            options = Hash[env
+                .select {|k,v| k.start_with? 'HTTP_'}
+                .map {|k,v| [k.sub(/^HTTP_/, ''), v]}
+            ]
+            options[:ssl_verify_mode] = OpenSSL::SSL::VERIFY_NONE
+            doc = Nokogiri::HTML(open(env['rack.url_scheme'] + '://' + request.host + project_path, options))
+            wiki_doc = Nokogiri::HTML(response[0])
+            doc.css('head')[0].inner_html += wiki_doc.css('head')[0].inner_html
+            doc.css('.content')[0].inner_html = wiki_doc.css('body')[0].inner_html
+            response_str = doc.to_s
+            headers['Content-Length'] = response_str.size.to_s
+            response = [response_str]
+        end
+        [status, headers, response]
     end
   end
 end
