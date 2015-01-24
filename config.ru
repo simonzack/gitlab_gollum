@@ -1,6 +1,28 @@
 #!/usr/bin/env ruby
 require 'gollum/app'
 
+
+class NotFound
+  F = ::File
+
+  def initialize(app, path)
+    @app = app
+    file = F.expand_path(path)
+    @content = F.read(file)
+    @length = @content.size.to_s
+  end
+
+  def call(env)
+    res = @app.call(env)
+    if res.nil?
+        [404, {'Content-Type' => 'text/html', 'Content-Length' => @length}, [@content]]
+    else
+        res
+    end
+  end
+end
+
+
 class GitlabGollum
   def call(env)
     request = Rack::Request.new(env)
@@ -12,11 +34,11 @@ class GitlabGollum
         env['PATH_INFO'] = env['PATH_INFO'][base_path.length..-1]
         Precious::App.set(:gollum_path, gollum_path)
         Precious::App.set(:base_path, base_path)
-        return Precious::App.call(env)
+        Precious::App.call(env)
     end
-    [404, {'Content-Type' => 'text/html' }, ['Wiki doesn\'t exist']]
   end
 end
+
 
 Precious::App.set(:default_markup, :markdown)
 Precious::App.set(:wiki_options, {
@@ -25,4 +47,5 @@ Precious::App.set(:wiki_options, {
     :live_preview => true
 })
 
+use NotFound, 'public/404.html'
 run GitlabGollum.new
