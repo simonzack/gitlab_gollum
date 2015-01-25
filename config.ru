@@ -56,6 +56,15 @@ class GitlabGollum
         ]
         options[:ssl_verify_mode] = OpenSSL::SSL::VERIFY_NONE
         doc = Nokogiri::HTML(open(env['rack.url_scheme'] + '://' + request.host + project_path, options))
+        script = Nokogiri::XML::Node.new 'script', doc
+        script.inner_html = '
+          function updateIframe(contentWindow){
+            parts = contentWindow.location.pathname.split("/");
+            parts.splice(4, 1);
+            window.history.replaceState({} , contentWindow.title, parts.join("/"));
+          }
+        '
+        doc.at_css('header') << script
         style = Nokogiri::XML::Node.new 'style', doc
         style.inner_html = '
           html, body, .page-with-sidebar, .content-wrapper, iframe {width: 100%; height: 100%;}
@@ -63,7 +72,8 @@ class GitlabGollum
           .content-wrapper {padding: 0px;}
         '
         doc.at_css('header') << style
-        doc.at_css('.content-wrapper').inner_html = "<iframe src=\"#{gollum_path}\" frameborder=\"0\"></iframe>"
+        doc.at_css('.content-wrapper').inner_html =
+          "<iframe src=\"#{gollum_path}\" frameborder=\"0\" onload=\"updateIframe(this.contentWindow)\"></iframe>"
         remove_class(doc.at_css('.shortcuts-project').parent, 'active')
         add_class(doc.at_css('.shortcuts-wiki').parent, 'active')
         response_str = doc.to_s
