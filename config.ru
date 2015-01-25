@@ -25,6 +25,24 @@ class NotFound
 end
 
 
+class InternalError
+  F = ::File
+
+  def initialize(app, path)
+    @app = app
+    file = F.expand_path(path)
+    @content = F.read(file)
+    @length = @content.size.to_s
+  end
+
+  def call(env)
+    res = @app.call(env)
+  rescue StandardError, LoadError, SyntaxError => e
+    [500, {'Content-Type' => 'text/html', 'Content-Length' => @length}, [@content]]
+  end
+end
+
+
 class GitlabGollum
   def add_class(node, name)
     node['class'] = (node['class'].split(' ') | [name]).join(' ')
@@ -95,4 +113,5 @@ Precious::App.set(:wiki_options, {
 })
 
 use NotFound, 'public/404.html'
+use InternalError, 'public/500.html'
 run GitlabGollum.new
