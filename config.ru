@@ -36,17 +36,20 @@ class GitlabGollum
 
   def call(env)
     request = Rack::Request.new(env)
-    project_path = '/' + request.path.split('/')[1..2].join('/')
-    base_path = project_path + '/wikis/gollum'
-    gollum_path = '/var/lib/gitlab/repositories' + project_path + '.wiki.git'
-    if File.directory?(gollum_path)
+    project_path = request.path.split('/')[0..2].join('/')
+    base_path = project_path + '/wikis'
+    repo_path = '/var/lib/gitlab/repositories' + project_path + '.wiki.git'
+    if File.directory?(repo_path)
       if request.path.split('/')[4] == 'gollum'
-        env['SCRIPT_NAME'] = env['PATH_INFO'][0..base_path.length-1]
-        env['PATH_INFO'] = env['PATH_INFO'][base_path.length..-1]
-        Precious::App.set(:gollum_path, gollum_path)
+        base_path += '/gollum'
+        request_path = request.path
+        env['SCRIPT_NAME'] = base_path
+        env['PATH_INFO'] = request_path[base_path.length..-1]
+        Precious::App.set(:gollum_path, repo_path)
         Precious::App.set(:base_path, base_path)
         Precious::App.call(env)
       else
+        gollum_path = base_path + '/gollum' + request.path[base_path.length..-1]
         options = Hash[env
           .select {|k,v| k.start_with? 'HTTP_'}
           .map {|k,v| [k.sub(/^HTTP_/, ''), v]}
@@ -60,7 +63,7 @@ class GitlabGollum
           .content-wrapper {padding: 0px;}
         '
         doc.at_css('header') << style
-        doc.at_css('.content-wrapper').inner_html = "<iframe src=\"#{base_path}\" frameborder=\"0\"></iframe>"
+        doc.at_css('.content-wrapper').inner_html = "<iframe src=\"#{gollum_path}\" frameborder=\"0\"></iframe>"
         remove_class(doc.at_css('.shortcuts-project').parent, 'active')
         add_class(doc.at_css('.shortcuts-wiki').parent, 'active')
         response_str = doc.to_s
