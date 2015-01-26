@@ -4,18 +4,30 @@ require 'nokogiri'
 require 'gollum/app'
 
 
+module Helpers
+  def open_env(path, env)
+    options = Hash[env
+      .select {|k,v| k.start_with? 'HTTP_'}
+      .map {|k,v| [k.sub(/^HTTP_/, ''), v]}
+    ]
+    options[:ssl_verify_mode] = OpenSSL::SSL::VERIFY_NONE
+    open env['rack.url_scheme'] + '://' + env['HTTP_HOST'] + path, options
+  end
+end
+
+
 class NotFound
   F = ::File
 
   def initialize(app, path)
     @app = app
-    file = F.expand_path(path)
-    @content = F.read(file)
+    file = F.expand_path path
+    @content = F.read file
     @length = @content.size.to_s
   end
 
   def call(env)
-    res = @app.call(env)
+    res = @app.call env
     if res.nil?
       [404, {'Content-Type' => 'text/html', 'Content-Length' => @length}, [@content]]
     else
@@ -30,20 +42,22 @@ class InternalError
 
   def initialize(app, path)
     @app = app
-    file = F.expand_path(path)
-    @content = F.read(file)
+    file = F.expand_path path
+    @content = F.read file
     @length = @content.size.to_s
   end
 
   def call(env)
-    res = @app.call(env)
+    res = @app.call env
   rescue StandardError, LoadError, SyntaxError => e
     [500, {'Content-Type' => 'text/html', 'Content-Length' => @length}, [@content]]
   end
 end
 
 
-class GitlabGollum
+class GitlabGollum < Sinatra::Base
+  helpers Helpers
+
   def add_class(node, name)
     node['class'] = (node['class'].split(' ') | [name]).join(' ')
   end
@@ -53,27 +67,22 @@ class GitlabGollum
   end
 
   def call(env)
-    request = Rack::Request.new(env)
+    request = Rack::Request.new env
     project_path = request.path.split('/')[0..2].join('/')
     base_path = project_path + '/wikis'
     repo_path = '/var/lib/gitlab/repositories' + project_path + '.wiki.git'
-    if File.directory?(repo_path)
+    if File.directory? repo_path
       if request.path.split('/')[4] == 'gollum'
         base_path += '/gollum'
         request_path = request.path
         env['SCRIPT_NAME'] = base_path
         env['PATH_INFO'] = request_path[base_path.length..-1]
-        Precious::App.set(:gollum_path, repo_path)
-        Precious::App.set(:base_path, base_path)
-        Precious::App.call(env)
+        Precious::App.set :gollum_path, repo_path
+        Precious::App.set :base_path, base_path
+        Precious::App.call env
       else
         gollum_path = base_path + '/gollum' + request.path[base_path.length..-1]
-        options = Hash[env
-          .select {|k,v| k.start_with? 'HTTP_'}
-          .map {|k,v| [k.sub(/^HTTP_/, ''), v]}
-        ]
-        options[:ssl_verify_mode] = OpenSSL::SSL::VERIFY_NONE
-        doc = Nokogiri::HTML(open(env['rack.url_scheme'] + '://' + request.host + project_path, options))
+        doc = Nokogiri::HTML open_env(project_path, env)
         script = Nokogiri::XML::Node.new 'script', doc
         script.inner_html = '
           function updateIframe(contentWindow){
@@ -92,8 +101,8 @@ class GitlabGollum
         doc.at_css('header') << style
         doc.at_css('.content-wrapper').inner_html =
           "<iframe src=\"#{gollum_path}\" frameborder=\"0\" onload=\"updateIframe(this.contentWindow)\"></iframe>"
-        remove_class(doc.at_css('.shortcuts-project').parent, 'active')
-        add_class(doc.at_css('.shortcuts-wiki').parent, 'active')
+        remove_class doc.at_css('.shortcuts-project').parent, 'active'
+        add_class doc.at_css('.shortcuts-wiki').parent, 'active'
         response_str = doc.to_s
         [200, {
           'Content-Type' => 'text/html;charset=utf-8',
@@ -105,12 +114,26 @@ class GitlabGollum
 end
 
 
-Precious::App.set(:default_markup, :markdown)
-Precious::App.set(:wiki_options, {
-  :universal_toc => false,
-  :mathjax => true,
-  :live_preview => true
-})
+class Precious::App
+  helpers Helpers
+
+  before do
+    request = Rack::Request.new env
+    doc = Nokogiri::HTML open_env('/profile', env)
+    session['gollum.author'] = {
+        :name => doc.at_css('#user_name')['value'],
+        :email => doc.at_css('#user_email')['value']
+    }
+  end
+
+  set :default_markup, :markdown
+  set :wiki_options, {
+    :universal_toc => false,
+    :mathjax => true,
+    :live_preview => true
+  }
+end
+
 
 use NotFound, 'public/404.html'
 use InternalError, 'public/500.html'
