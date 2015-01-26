@@ -123,7 +123,7 @@ class Precious::App
     name = doc.at_css('#user_name')['value']
     email = doc.at_css('#user_email')['value']
     if email == name + '@example.com'
-      email = '>'
+      email = ''
     end
     session['gollum.author'] = {:name => name, :email => email}
   end
