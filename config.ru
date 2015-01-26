@@ -120,10 +120,12 @@ class Precious::App
   before do
     request = Rack::Request.new env
     doc = Nokogiri::HTML open_env('/profile', env)
-    session['gollum.author'] = {
-        :name => doc.at_css('#user_name')['value'],
-        :email => doc.at_css('#user_email')['value']
-    }
+    name = doc.at_css('#user_name')['value']
+    email = doc.at_css('#user_email')['value']
+    if email == name + '@example.com'
+      email = '>'
+    end
+    session['gollum.author'] = {:name => name, :email => email}
   end
 
   set :default_markup, :markdown
